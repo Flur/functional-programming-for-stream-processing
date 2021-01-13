@@ -14,6 +14,7 @@ import scala.util.Try
 object Main extends App {
 
 //  NasaDisasterSource()
-  PostgresSink()
+//  PostgresSink()
 
+  println(GoogleCalendarExample.getEventsForDisasterCalendar)
 }

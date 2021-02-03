@@ -1,5 +1,7 @@
 # Project exclude paths
 /project/target/
 /target/
-.bsp
-.idea
+.bsp/*
+.idea/*
+/project/project/target/*
+/src/main/resources/*

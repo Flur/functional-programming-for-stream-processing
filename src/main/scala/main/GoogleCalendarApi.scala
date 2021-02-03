@@ -1,7 +1,0 @@
-package main
-
-object GoogleCalendarApi {
-
-}
-
-

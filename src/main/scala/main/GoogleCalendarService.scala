@@ -11,12 +11,13 @@ import java.util
 import java.util.Collections
 import com.google.api.client.googleapis.auth.oauth2.GoogleCredential;
 
-object GoogleCalendarExample {
+object GoogleCalendarService {
   val APPLICATION_NAME = "Google Calendar API"
   val JSON_FACTORY: JacksonFactory = JacksonFactory.getDefaultInstance
   val DISASTER_CALENDAR_ID = "52h4q6tp1o0sv44hu8jnuji7og@group.calendar.google.com"
   val SCOPES: util.List[String] = Collections.singletonList(CalendarScopes.CALENDAR_READONLY)
-  val CREDENTIALS_FILE_PATH: String= "vivid-router-301320-f01a20c1352d.json"
+  // path to your json service account key
+  val CREDENTIALS_FILE_PATH: String= "./src/main/resources/vivid-router-301320-f01a20c1352d.json"
 
   def getCalendar: Calendar = {
     val credential: GoogleCredential = GoogleCredential.fromStream(new FileInputStream(CREDENTIALS_FILE_PATH))

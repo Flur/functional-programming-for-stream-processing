@@ -61,8 +61,8 @@ object Main extends App {
   implicit val dispatcher = system.dispatcher
   implicit val materializer = ActorMaterializer()
 
-  val sourceOfGoogleEvent = runEventsThruPostgre().log("error logging")
-  val sourceOfEonetEvent = runDisastersThruPostgre().log("error logging")
+  val sourceOfGoogleEvent = runEventsThruPostgre()
+  val sourceOfEonetEvent = runDisastersThruPostgre()
 
   val googleEventGr = getGraphForNewGoogleCalendarEvent()
   val eonetEventGr = getGraphForNewEonetEvent()
@@ -70,10 +70,13 @@ object Main extends App {
   val mainSource: Source[(List[EonetEventFromDB], NominatimResponse, Event), NotUsed] = Source.combine(
     Source.fromGraph(sourceOfGoogleEvent.via(googleEventGr)),
     Source.fromGraph(sourceOfEonetEvent.via(eonetEventGr))
-  )(Merge(_)).log("error logging")
+  )(Merge(_))
 
-  val compareCoordinatesFlow = CompareCoordinatesService.getFlow().log("error logging")
+  val compareCoordinatesFlow = CompareCoordinatesService.getFlow()
   val sourceForWebSocketServer = getSourceForWebSocketServer(mainSource.via(compareCoordinatesFlow))
+
+//  sourceOfGoogleEvent.runForeach(println("end of data", _))
+//  sourceOfEonetEvent.via(eonetEventGr).runForeach(println("end of data", _))
 
   HttpServer.start(sourceForWebSocketServer)
 
@@ -135,23 +138,23 @@ object Main extends App {
 
       val zip = builder.add(
         ZipWith[EonetEvent, Event, NominatimResponse, (List[EonetEventFromDB], NominatimResponse, Event)] {
-          (eonetEvent, googleEvent, nominatimResponse) =>
+          (eonetEvent, googleEvent, nominatimResponse) => {
             (List(EonetEventService.eonetEvetToEonetEventFromDB(eonetEvent)), nominatimResponse, googleEvent)
+          }
         })
 
       val broadcastGoogleEvent = builder.add(Broadcast[Event](2))
 
       val postgres: Flow[EonetEvent, Event, NotUsed] = Flow[EonetEvent]
-        .mapAsync(1)((e: EonetEvent) => PostgresService.getGoogleCalendarEvents())
+        .mapAsync(150)((e: EonetEvent) => PostgresService.getGoogleCalendarEvents())
         .mapConcat(identity)
 
       val searchEventLocation = NominatimService.apply
 
       broadcastEonetEvent.out(0) ~> zip.in0
       broadcastEonetEvent.out(1) ~> postgres ~> broadcastGoogleEvent.in
-
-      broadcastGoogleEvent.out(0) ~> searchEventLocation ~> zip.in2
-      broadcastGoogleEvent.out(1) ~> zip.in1
+                                                broadcastGoogleEvent.out(1) ~> zip.in1
+                                                broadcastGoogleEvent.out(0) ~> searchEventLocation ~> zip.in2
 
       // expose ports
       FlowShape(broadcastEonetEvent.in, zip.out)

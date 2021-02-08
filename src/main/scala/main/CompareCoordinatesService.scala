@@ -14,9 +14,6 @@ object CompareCoordinatesService {
   ] = Flow[(List[EonetEventFromDB], NominatimResponse, Event)]
     .map[(List[(EonetEventFromDB, List[NominatimGeoJSON])], Event)](
       t => {
-
-        println("inside flow")
-
         val (eonetEvents, nominatimResponse, googleCalendarEvent) = t
 
         (
@@ -48,11 +45,6 @@ object CompareCoordinatesService {
 
     val nominatimLocationsCloseToEvent: Option[List[Double]] = nominatimLocationCoordinates.find(nominatimCoordinates => {
       val distanceBetweenTwoPoints = Haversine.apply(eventCoordinate.head, eventCoordinate.lift(1).get, nominatimCoordinates.head, nominatimCoordinates.lift(1).get)
-
-      if ((distanceBetweenTwoPoints / 1000) < 30) {
-        println(nominatimGeoJson)
-        println(eventCoordinate)
-      }
 
       // todo distance as const
       (distanceBetweenTwoPoints / 1000) < 30

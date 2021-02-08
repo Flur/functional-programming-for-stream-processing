@@ -14,6 +14,8 @@ import spray.json.DefaultJsonProtocol._
 import scala.concurrent.duration.DurationInt
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 
+import scala.concurrent.Future
+
 case class NominatimGeometry(`type`: String, coordinates: Either[List[Double], List[List[Double]]])
 // todo add props
 case class NominatimGeoJSONProperty(display_name: String)
@@ -34,16 +36,19 @@ object NominatimService {
     Flow[Event]
       // limitation see here https://operations.osmfoundation.org/policies/nominatim/
       .throttle(1, 1.second)
-      .map { event =>
-        HttpRequest(
-          HttpMethods.GET,
-          Uri(s"https://nominatim.openstreetmap.org/search")
-            .withQuery(Query("q" -> event.getLocation, "format" -> "geojson", "dedupe" -> "1")))
+      .map { event => {
+
+          HttpRequest(
+            HttpMethods.GET,
+            Uri(s"https://nominatim.openstreetmap.org/search")
+              .withQuery(Query("q" -> event.getLocation, "format" -> "geojson", "dedupe" -> "1")))
+        }
       }
-      .mapAsync(1) {
-        req => Http().singleRequest(req)
+      .mapAsync(150) {
+        req => {
+          Http().singleRequest(req).flatMap(r => Unmarshal(r.entity).to[NominatimResponse])
+        }
       }
-      .mapAsync(1) { response => Unmarshal(response.entity).to[NominatimResponse]}
   }
 
   def getNominatimGeometryCoordinates(nominatimGeoJSON: NominatimGeoJSON): List[List[Double]] = {

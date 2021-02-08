@@ -83,7 +83,7 @@ object PostgresService {
   def createTables(): Unit = {
     val dropEonetEvent =
       sql"""
-           DROP TABLE IF EXISTS eonet_event, eonet_geometry, eonet_category, eonet_source,
+           DROP TABLE IF EXISTS eonet_event, google_event, eonet_geometry, eonet_category, eonet_source,
            eonet_event_eonet_source_realtion, eonet_event_eonet_category_relation CASCADE
       """.update.run
 

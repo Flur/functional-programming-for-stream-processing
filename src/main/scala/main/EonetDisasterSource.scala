@@ -34,8 +34,7 @@ object EonetDisasterSource {
     Source
       .repeat(httpRequest)
       .throttle(1, 30.seconds)
-      .mapAsync(1) { req => Http().singleRequest(req) }
-      .mapAsync(1) { response => Unmarshal(response.entity).to[EonetResponse]}
+      .mapAsync(1) { req => Http().singleRequest(req).flatMap(r => Unmarshal(r.entity).to[EonetResponse]) }
       .mapConcat { eonetResponse => eonetResponse.events }
   }
 }

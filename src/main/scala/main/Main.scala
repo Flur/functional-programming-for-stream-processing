@@ -5,7 +5,7 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.model.ws.{Message, TextMessage}
 import akka.stream.{ActorMaterializer, ClosedShape, FlowShape, Graph}
 import akka.stream.javadsl.RunnableGraph
-import akka.stream.scaladsl.{Broadcast, Flow, GraphDSL, Sink, Source, Zip, ZipWith}
+import akka.stream.scaladsl.{Broadcast, Flow, GraphDSL, Merge, Sink, Source, Zip, ZipWith}
 import GraphDSL.Implicits._
 import akka.http.scaladsl.client.RequestBuilding.WithTransformation
 import com.google.api.services.calendar.model.Event
@@ -70,7 +70,7 @@ object Main extends App {
   val mainSource: Source[(List[EonetEventFromDB], NominatimResponse, Event), NotUsed] = Source.combine(
     Source.fromGraph(sourceOfGoogleEvent.via(googleEventGr)),
     Source.fromGraph(sourceOfEonetEvent.via(eonetEventGr))
-  )
+  )(Merge(_))
 
   val compareCoordinatesFlow = CompareCoordinatesService.getFlow()
   val sourceForWebSocketServer = getSourceForWebSocketServer(mainSource.via(compareCoordinatesFlow))

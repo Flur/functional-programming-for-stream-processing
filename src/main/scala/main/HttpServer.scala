@@ -1,10 +1,12 @@
 package main
 
+import akka.NotUsed
 import akka.actor.typed.ActorSystem
 import akka.actor.typed.scaladsl.Behaviors
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.ws._
 import akka.http.scaladsl.server.Directives._
+import akka.stream.SourceShape
 import akka.stream.scaladsl.{Flow, Sink, Source}
 
 import scala.io.StdIn
@@ -15,7 +17,7 @@ object HttpServer {
   // needed for the future flatMap/onComplete in the end
   implicit val executionContext = system.executionContext
 
-  def start(messageHandler: Flow[Message, Message, Any]): Unit = {
+  def start(source: Source[Message, NotUsed]): Unit = {
 
     def greeter: Flow[Message, Message, Any] =
       Flow[Message].mapConcat {
@@ -30,8 +32,14 @@ object HttpServer {
     val route =
       pathEndOrSingleSlash {
         handleWebSocketMessages(greeter)
-      }
 
+        extractWebSocketUpgrade { upgrade =>
+          complete(upgrade.handleMessagesWithSinkSource(
+            Sink.foreach(println("received message", _)),
+            source
+          ))
+        }
+      }
 
     val bindingFuture = Http().newServerAt("localhost", 8080).bind(route)
 

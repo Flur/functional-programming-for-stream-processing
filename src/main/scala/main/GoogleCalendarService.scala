@@ -9,9 +9,21 @@ import com.google.api.services.calendar.model.{CalendarListEntry, Event, Events}
 import java.io.FileInputStream
 import java.util
 import java.util.Collections
-import com.google.api.client.googleapis.auth.oauth2.GoogleCredential;
+
+import akka.NotUsed
+import akka.actor.ActorSystem
+import akka.stream.ActorMaterializer
+import akka.stream.scaladsl.Source
+import com.google.api.client.googleapis.auth.oauth2.GoogleCredential
+
+import scala.concurrent.duration.DurationInt
+import scala.jdk.CollectionConverters._
 
 object GoogleCalendarService {
+  implicit val system = ActorSystem()
+  implicit val dispatcher = system.dispatcher
+  implicit val materializer = ActorMaterializer()
+
   val APPLICATION_NAME = "Google Calendar API"
   val JSON_FACTORY: JacksonFactory = JacksonFactory.getDefaultInstance
   val DISASTER_CALENDAR_ID = "52h4q6tp1o0sv44hu8jnuji7og@group.calendar.google.com"
@@ -41,9 +53,19 @@ object GoogleCalendarService {
     getEventsList(DISASTER_CALENDAR_ID)
   }
 
-  def getCalendarList: util.List[CalendarListEntry] = {
+  def getCalendarList: List[CalendarListEntry] = {
     val calendarList = getCalendar.calendarList().list.execute()
 
-    calendarList.getItems
+    calendarList.getItems.asScala.toList
+  }
+
+  def getEventSource(): Source[Event, NotUsed] = {
+    Source
+      .repeat(getEventsForDisasterCalendar)
+      .map(i => i.asScala.toList)
+      .throttle(1, 30.seconds)
+      .mapConcat(identity)
+      // if event doesn't have location, then there is no sense to continue
+      .filter(ev => Option(ev.getLocation).nonEmpty )
   }
 }

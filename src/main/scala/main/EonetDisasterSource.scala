@@ -5,7 +5,7 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.{HttpMethods, HttpRequest}
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.ActorMaterializer
-import akka.stream.scaladsl.{Source}
+import akka.stream.scaladsl.Source
 import akka.NotUsed
 import spray.json.DefaultJsonProtocol.jsonFormat4
 import spray.json.DefaultJsonProtocol._
@@ -27,16 +27,15 @@ object EonetDisasterSource {
   implicit val nasaResponseFormat = jsonFormat4(EonetResponse)
 
   def apply: Source[EonetEvent, NotUsed] = {
-//    val httpRequest = HttpRequest(HttpMethods.GET, "https://eonet.sci.gsfc.nasa.gov/api/v3/events")
-    val httpRequest = HttpRequest(HttpMethods.GET, "https://eonet.sci.gsfc.nasa.gov/api/v3/events?limit=1")
+    val httpRequest = HttpRequest(HttpMethods.GET, "https://eonet.sci.gsfc.nasa.gov/api/v3/events")
 
     // todo add errors handling for HttpRequests, maybe change parallelism value
     // todo could be used tick instead of repeat and throttle
     Source
       .repeat(httpRequest)
-      .throttle(1, 5.seconds)
+      .throttle(1, 30.seconds)
       .mapAsync(1) { req => Http().singleRequest(req) }
       .mapAsync(1) { response => Unmarshal(response.entity).to[EonetResponse]}
-      .mapConcat {eonetResponse => eonetResponse.events}
+      .mapConcat { eonetResponse => eonetResponse.events }
   }
 }

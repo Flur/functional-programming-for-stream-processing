@@ -1,13 +1,14 @@
 package main
 
 import akka.NotUsed
-import akka.stream.scaladsl.{Flow}
+import akka.stream.scaladsl.Flow
 import cats.data.NonEmptyList
 import main.HttpServer.system
 import doobie._
 import doobie.implicits._
 import cats.effect._
 import cats.implicits._
+import com.google.api.services.calendar.model.Event
 
 import scala.concurrent.Future
 
@@ -31,6 +32,35 @@ object PostgresService {
       (eg.magnitudeValue, eg.magnitudeUnit, eg.date, eg.`type`, point, polygon)
     })
 
+  implicit val eonetEventFromDBRead: Read[EonetEventFromDB] =
+    Read[(Int, String, String, Option[Boolean], Option[String], Option[String])].map {
+    case (id, eonet_event_id, title, closed, description, link) =>
+      EonetEventFromDB(id, eonet_event_id, title, description, link, closed, Option.empty[List[EonetGeometryFromDB]])
+  }
+
+  // make as case class
+  implicit val eonetEventPointFromDBRead: Read[Option[List[Double]]] = Read[Option[String]].map {
+    case Some(points) => Option(points.split("[^0-9.-]+").filter(_.nonEmpty).map(_.toDouble).toList)
+    case None => Option.empty[List[Double]]
+  }
+
+  implicit val eonetEventGeometryFromDBRead: Read[EonetGeometryFromDB] =
+    Read[(Option[List[Double]], Option[List[Double]], Int, String, Int)].map {
+      case (point, polygon, geometryId, typeOfGeometry, eventId) => {
+
+        val newPolygon: Option[List[List[Double]]] = polygon match {
+          case Some(points) => Option(points.grouped(2).toList)
+          case None => Option.empty[List[List[Double]]]
+        }
+
+        EonetGeometryFromDB(geometryId, typeOfGeometry, point, newPolygon, eventId)
+      }
+    }
+
+  implicit val googleCalendarEventPointFromDBRead: Read[Event] = Read[(Int, String, String, String, String)].map {
+    case (id ,googleEventID, created, htmlLink, location) => new Event().setId(googleEventID).setLocation(location).setHtmlLink(htmlLink)
+  }
+
   val xa = Transactor.fromDriverManager[IO](
     "org.postgresql.Driver",                                     // driver classname
     "jdbc:postgresql://localhost:5433/functional_programming",     // connect URL (driver-specific)
@@ -44,6 +74,11 @@ object PostgresService {
   // for .quick
   //  val y = xa.yolo
   //  import y._
+
+
+  def apply(): Unit = {
+    createTables()
+  }
 
   def createTables(): Unit = {
     val dropEonetEvent =
@@ -119,6 +154,41 @@ object PostgresService {
         UNIQUE (eonet_event_id, eonet_category_id)
     )""".update.run
 
+//    {
+//      "id":"3osu68nouqpbq8a1boksoaops1",
+//      "created":"2021-02-07T14:33:27.000Z",
+//      "htmlLink":"https://www.google.com/calendar/event?eid=M29zdTY4bm91cXBicThhMWJva3NvYW9wczEgNTJoNHE2dHAxbzBzdjQ0aHU4am51amk3b2dAZw",
+//      "kind":"calendar#event",
+//      "location":"Abilene, TX, USA",
+//
+//      "creator":{"email":"superflur@gmail.com"},
+//      "end":{"dateTime":"2021-02-07T18:00:00.000+02:00"},
+//      "etag":"\"3225416815314000\"",
+//      "organizer":{
+//        "displayName":"Disaster Events Calendar","email":"52h4q6tp1o0sv44hu8jnuji7og@group.calendar.google.com","self":true
+//      },
+//      "reminders":{"useDefault":true},
+//      "start":{"dateTime":"2021-02-07T17:00:00.000+02:00"},
+//      "iCalUID":"3osu68nouqpbq8a1boksoaops1@google.com",
+
+//      "sequence":0,
+//      "status": "confirmed",
+//      "summary":"Go to abilene",
+//      "updated":"2021-02-07T14:33:27.657Z",
+//      "eventType":"default"
+//    }
+
+
+    val googleCalendarEvent = sql"""
+      CREATE TABLE IF NOT EXISTS google_event (
+        id SERIAL PRIMARY KEY,
+        google_event_id varchar(255),
+        created varchar(255),
+        htmlLink varchar(255),
+        location varchar(255),
+        UNIQUE (google_event_id)
+    )""".update.run
+
     (
       dropEonetEvent,
       createEonetEvent,
@@ -126,16 +196,70 @@ object PostgresService {
       createEonetCategory,
       createEonetSource,
       eventSourceRelation,
-      eventCategoryRelation
-    ).mapN(_ + _ + _ + _ + _ + _ + _).transact(xa).unsafeRunSync
+      eventCategoryRelation,
+      googleCalendarEvent
+    ).mapN(_ + _ + _ + _ + _ + _ + _ + _).transact(xa).unsafeRunSync
   }
 
-  def apply(): Unit = {
-    createTables()
+  def getActiveEonetEvent(): Future[List[EonetEventFromDB]] = {
+    selectNotClosedEonetEvents()
+      .transact(xa)
+      .unsafeToFuture
+      .zip(
+        selectGeometriesOfNotClosedEonetEvents()
+          .transact(xa)
+          .unsafeToFuture
+      )
+      .map(t => {
+        val (eonetEvents, eonetGeometries) = t
+
+        eonetEvents.map(ee => EonetEventFromDB(
+          ee.id,
+          ee.eonetEventId,
+          ee.title,
+          ee.description,
+          ee.link,
+          ee.closed,
+          Option(eonetGeometries.filter(_.eventId == ee.id))
+        ))
+    })
   }
 
-  def getFlow: Flow[EonetEvent, Option[EonetEvent], NotUsed] = {
+  def getGoogleCalendarEvents(): Future[List[Event]] = {
+    selectGoogleCalendarEvents()
+      .transact(xa)
+      .unsafeToFuture
+  }
+
+  def getEonetEventFlow: Flow[EonetEvent, Option[EonetEvent], NotUsed] = {
     Flow[EonetEvent].mapAsync(1) { eonetEvent => insertEonetEvent(eonetEvent) }
+  }
+
+  def getGoogleCalendarEventFlow: Flow[Event, Option[Event], NotUsed] = {
+    Flow[Event].mapAsync(1) { event => insertGoogleCalendarEvent(event) }
+  }
+
+  def insertGoogleCalendarEvent(googleCalendarEvent: Event): Future[Option[Event]] = {
+    insertGoogleCalenderEvent(googleCalendarEvent)
+      .transact(xa)
+      .unsafeToFuture
+      .flatMap(r => {
+        println(r)
+
+        var event = Option(googleCalendarEvent)
+
+        // 0 if this event already exists in db
+        if (r == 0) {
+          event = Option.empty[Event]
+        }
+
+        Future.successful(event)
+      })
+      .filter {
+        case Some(a) => true
+        case None => false
+      }
+
   }
 
   def insertEonetEvent(eonetEvent: EonetEvent): Future[Option[EonetEvent]] = {
@@ -150,11 +274,17 @@ object PostgresService {
           eonetEventOpt = Option.empty[EonetEvent]
         }
 
+        // todo add andThen as side effect?
         inserEonetEventSourcesCategories(eonetEvent).transact(xa).unsafeToFuture()
         insertGeometryAndRelations(eonetEvent).transact(xa).unsafeToFuture()
 
         Future.successful(eonetEventOpt)
       })
+      .filter {
+        case Some(a) => true
+        case None => false
+      }
+
   }
 
   def insertGeometryAndRelations(eonetEvent: EonetEvent): ConnectionIO[Unit] = {
@@ -187,6 +317,14 @@ object PostgresService {
       s"VALUES (?, $eventId) ON CONFLICT DO NOTHING"
 
     Update[Int](sql).updateMany(categoriesIds)
+  }
+
+  def insertGoogleCalenderEvent(event: Event): ConnectionIO[Int] = {
+    sql"""
+      INSERT INTO google_event as ee (google_event_id, created, htmlLink, location)
+      VALUES (${event.getId}, ${event.getCreated.getValue}, ${event.getHtmlLink}, ${event.getLocation})
+      ON CONFLICT (google_event_id) DO NOTHING
+    """.stripMargin.update.run
   }
 
   def insertInEonetEvent(eonetEvent: EonetEvent): ConnectionIO[Int] = {
@@ -224,6 +362,24 @@ object PostgresService {
    * Selects
    *
   **/
+
+  def selectGoogleCalendarEvents(): ConnectionIO[List[Event]] = {
+    sql"""
+        SELECT * FROM google_event
+      """.stripMargin.query[Event].to[List]
+  }
+
+ def selectNotClosedEonetEvents(): ConnectionIO[List[EonetEventFromDB]] = {
+  sql"""
+        SELECT * FROM eonet_event WHERE closed IS NULL OR closed=false
+      """.stripMargin.query[EonetEventFromDB].to[List]
+ }
+
+  def selectGeometriesOfNotClosedEonetEvents(): ConnectionIO[List[EonetGeometryFromDB]] = {
+    sql"""
+        SELECT point, polygon, geometry_id, type, event_id FROM eonet_geometry WHERE event_id IN (SELECT event_id FROM eonet_event WHERE closed IS NULL OR closed=false)
+      """.stripMargin.query[EonetGeometryFromDB].to[List]
+  }
 
   def selectEonetEventId(eonetEventId: String): ConnectionIO[Int] = {
     sql"""

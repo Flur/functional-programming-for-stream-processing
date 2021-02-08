@@ -14,6 +14,9 @@ object CompareCoordinatesService {
   ] = Flow[(List[EonetEventFromDB], NominatimResponse, Event)]
     .map[(List[(EonetEventFromDB, List[NominatimGeoJSON])], Event)](
       t => {
+
+        println("inside flow")
+
         val (eonetEvents, nominatimResponse, googleCalendarEvent) = t
 
         (

@@ -61,8 +61,8 @@ object Main extends App {
   implicit val dispatcher = system.dispatcher
   implicit val materializer = ActorMaterializer()
 
-  val sourceOfGoogleEvent = runEventsThruPostgre()
-  val sourceOfEonetEvent = runDisastersThruPostgre()
+  val sourceOfGoogleEvent = runEventsThruPostgre().log("error logging")
+  val sourceOfEonetEvent = runDisastersThruPostgre().log("error logging")
 
   val googleEventGr = getGraphForNewGoogleCalendarEvent()
   val eonetEventGr = getGraphForNewEonetEvent()
@@ -70,9 +70,9 @@ object Main extends App {
   val mainSource: Source[(List[EonetEventFromDB], NominatimResponse, Event), NotUsed] = Source.combine(
     Source.fromGraph(sourceOfGoogleEvent.via(googleEventGr)),
     Source.fromGraph(sourceOfEonetEvent.via(eonetEventGr))
-  )(Merge(_))
+  )(Merge(_)).log("error logging")
 
-  val compareCoordinatesFlow = CompareCoordinatesService.getFlow()
+  val compareCoordinatesFlow = CompareCoordinatesService.getFlow().log("error logging")
   val sourceForWebSocketServer = getSourceForWebSocketServer(mainSource.via(compareCoordinatesFlow))
 
   HttpServer.start(sourceForWebSocketServer)

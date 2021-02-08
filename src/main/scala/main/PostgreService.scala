@@ -154,31 +154,6 @@ object PostgresService {
         UNIQUE (eonet_event_id, eonet_category_id)
     )""".update.run
 
-//    {
-//      "id":"3osu68nouqpbq8a1boksoaops1",
-//      "created":"2021-02-07T14:33:27.000Z",
-//      "htmlLink":"https://www.google.com/calendar/event?eid=M29zdTY4bm91cXBicThhMWJva3NvYW9wczEgNTJoNHE2dHAxbzBzdjQ0aHU4am51amk3b2dAZw",
-//      "kind":"calendar#event",
-//      "location":"Abilene, TX, USA",
-//
-//      "creator":{"email":"superflur@gmail.com"},
-//      "end":{"dateTime":"2021-02-07T18:00:00.000+02:00"},
-//      "etag":"\"3225416815314000\"",
-//      "organizer":{
-//        "displayName":"Disaster Events Calendar","email":"52h4q6tp1o0sv44hu8jnuji7og@group.calendar.google.com","self":true
-//      },
-//      "reminders":{"useDefault":true},
-//      "start":{"dateTime":"2021-02-07T17:00:00.000+02:00"},
-//      "iCalUID":"3osu68nouqpbq8a1boksoaops1@google.com",
-
-//      "sequence":0,
-//      "status": "confirmed",
-//      "summary":"Go to abilene",
-//      "updated":"2021-02-07T14:33:27.657Z",
-//      "eventType":"default"
-//    }
-
-
     val googleCalendarEvent = sql"""
       CREATE TABLE IF NOT EXISTS google_event (
         id SERIAL PRIMARY KEY,
@@ -244,8 +219,6 @@ object PostgresService {
       .transact(xa)
       .unsafeToFuture
       .flatMap(r => {
-        println(r)
-
         var event = Option(googleCalendarEvent)
 
         // 0 if this event already exists in db
@@ -255,10 +228,6 @@ object PostgresService {
 
         Future.successful(event)
       })
-      .filter {
-        case Some(a) => true
-        case None => false
-      }
 
   }
 
@@ -280,11 +249,6 @@ object PostgresService {
 
         Future.successful(eonetEventOpt)
       })
-      .filter {
-        case Some(a) => true
-        case None => false
-      }
-
   }
 
   def insertGeometryAndRelations(eonetEvent: EonetEvent): ConnectionIO[Unit] = {
